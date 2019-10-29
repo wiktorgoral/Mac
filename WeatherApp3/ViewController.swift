@@ -9,103 +9,140 @@
 import UIKit
 import CoreLocation
 
-class ViewController: UIViewController {
-    let locationManager = CLLocationManager()
+class ViewController: UIViewController, CLLocationManagerDelegate{
+    
+    let locationManager:CLLocationManager = CLLocationManager()
     
     var curr = 0
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        locationManager.delegate = self
+    var max = 0
+    var latiude = CLLocationDegrees()
+    var longitiude = CLLocationDegrees()
+    var woeid = Int()
+    var weathers = NSArray()
+    var weather = NSDictionary()
+    @IBOutlet weak var tworca: UILabel!
+    @IBOutlet weak var ikona: UIImageView!
+    @IBOutlet weak var data: UILabel!
+    @IBOutlet weak var type: UILabel!
+    @IBOutlet weak var temperatura: UILabel!
+    @IBOutlet weak var wind: UILabel!
+    @IBOutlet weak var rain: UILabel!
+    @IBOutlet weak var pressure: UILabel!
+    @IBOutlet weak var prevButton: UIButton!
+    @IBAction func prevAction(_ sender: Any) {
+        if self.curr != 0 {
+            curr-=1
+            self.updateView()
+        }
+    }
+    
+    @IBOutlet weak var nextButton: UIButton!
+    @IBAction func nextAction(_ sender: Any) {
+        if self.curr != self.max{
+            curr+=1
+            self.updateView()
+        }
+    }
+    
+    
+    
+    func getWoeid(completion: @escaping ( _ result: Int) -> () ){
+        
         locationManager.requestWhenInUseAuthorization()
-        if(CLLocationManager.authorizationStatus() == .authorizedWhenInUse || CLLocationManager.authorizationStatus() == .authorizedAlways){
-            locationManager.requestLocation()
+        var w = Int()
+        if CLLocationManager.locationServicesEnabled(){
+            locationManager.delegate = self
+            locationManager.startUpdatingLocation()
+            
+            let url = URL(string: "https://www.metaweather.com/api/location/search/?lattlong=\(latiude),\(longitiude)")!
+            let session = URLSession.shared.dataTask(with: url, completionHandler:  { (data, response, error) -> Void in DispatchQueue.main.async {
+                if let data = data {
+                    if let cities = try? JSONSerialization.jsonObject(with: data, options: .allowFragments)as? NSArray {
+                        if let city = cities!.firstObject as? NSDictionary{
+                            w = (city.value(forKey: "woeid") as? Int)!
+                            completion(w)
+                        }
+                    }
+                }
+                }
+            }
+            )
+            session.resume()
         }
         
-        temperatura.text = "Temp"
-        
-        let url = URL(string: "/static/img/weather/png/64/hr.png")!
-        
-        let session = URLSession.shared.dataTask(with: url, completionHandler: { data, response, error in DispatchQueue.main.async {
-            
-            if error == nil && data != nil {
-                self.ikona.image = UIImage(data: data!)
+    }
+    
+    
+    
+    func getWeather(woeid:Int, completion: @escaping ( _ result: NSArray)->()){
+        var weathers:NSArray = NSArray()
+        let url = URL(string: "https://www.metaweather.com/api/location/\(woeid)/")!
+        let session = URLSession.shared.dataTask(with: url, completionHandler: {(data, response, error) -> Void in DispatchQueue.main.async {
+            if let data = data{
+                if let all = try? JSONSerialization.jsonObject(with: data, options: .allowFragments)as? NSDictionary {
+                    weathers = all!.value(forKey: "consolidated_weather") as! NSArray
+                    completion(weathers)
+                }
+            }
             }
         }
-            
-    }
-    )
-        
-
+        )
         session.resume()
-        nextBtn.isEnabled = true
-        
-}
-
-    
-    
-    func retriveCurrentLocation(){
-        let status = CLLocationManager.authorizationStatus()
-        
-        if(status == .denied || status == .restricted || !CLLocationManager.locationServicesEnabled()){
-            // show alert to user telling them they need to allow location data to use some feature of your app
-            return
-        }
-        
-        // if haven't show location permission dialog before, show it to user
-        if(status == .notDetermined){
-            locationManager.requestWhenInUseAuthorization()
-            
-            // if you want the app to retrieve location data even in background, use requestAlwaysAuthorization
-            // locationManager.requestAlwaysAuthorization()
-            return
-        }
-        
-        // at this point the authorization status is authorized
-        // request location data once
-        locationManager.requestLocation()
-        
-        // start monitoring location data and get notified whenever there is change in location data / every few seconds, until stopUpdatingLocation() is called
-        // locationManager.startUpdatingLocation()
     }
-    @IBOutlet weak var temperatura: UILabel!
-    @IBOutlet weak var ikona: UIImageView!
-    @IBOutlet weak var nextBtn: UIButton!
-    @IBAction func Next(_ sender: Any) {
-        if curr == 7{
-            nextBtn.isEnabled = false
+    func getImage(short: String, completion: @escaping ( _ result: UIImage)->()){
+        var image = UIImage()
+        let url = URL(string: "https://www.metaweather.com/static/img/weather/png/64/\(short).png")!
+        let session = URLSession.shared.dataTask(with: url, completionHandler: {(data, response, error) -> Void in DispatchQueue.main.async {
+            if let data = data{
+                image = UIImage(data: data)!
+                completion(image)
+                }
+            }
+        }
+        )
+        session.resume()
+    }
+    
+    func updateView(){
+        if self.curr==0{
+            self.prevButton.isEnabled=false
+        }
+        else if self.curr==self.max{
+            self.nextButton.isEnabled=false
         }
         else{
-            curr = curr + 1
-            print("Next!")
+            self.nextButton.isEnabled=true
+            self.prevButton.isEnabled=true
+        }
+        self.weather = self.weathers[self.curr] as! NSDictionary
+        self.getImage(short:  self.weather.value(forKey: "weather_state_abbr") as! String){(value2) in
+            self.ikona.image = value2
+            self.data.text = "Date \(String(describing: self.weather.value(forKey: "applicable_date") as! String))"
+            self.type.text = "Type \(String(describing: self.weather.value(forKey: "weather_state_name") as! String))"
+            self.temperatura.text = "Tempreture \(String(format:"%.0f", self.weather.value(forKey: "min_temp") as! Double))℃ - \(String(format:"%.0f", self.weather.value(forKey: "max_temp") as! Double))℃"
+            self.wind.text = "Wind \(String(self.weather.value(forKey: "wind_direction_compass") as! String)) \(String(format:"%.0f", self.weather.value(forKey: "wind_speed") as! Double)) mph"
+            self.rain.text = "Humidity \(String(describing: self.weather.value(forKey: "humidity") as! Int))%"
+            self.pressure.text = "Pressure \(String(describing: self.weather.value(forKey: "air_pressure") as! Int)) mbar"
         }
     }
-    @IBOutlet weak var Data: UILabel!
-    @IBAction func Prev(_ sender: Any) {
-        if curr == -7{ PrevBtn.isEnabled = false }
-        else{
-            curr = curr - 1
-            print("Prev!")
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        getWoeid(){(value) in
+            self.woeid = value
+            self.getWeather(woeid: self.woeid){(value1) in
+                self.weathers = value1
+                self.max = self.weathers.count - 1
+                if self.weathers.firstObject != nil{
+                    self.updateView()
+                }
+            }
         }
     }
-    @IBOutlet weak var PrevBtn: UIButton!
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        for currentLocation in locations{
+            self.longitiude = currentLocation.coordinate.longitude
+            self.latiude = currentLocation.coordinate.latitude
+        }
+    }
 }
-
-extension ViewController: CLLocationManagerDelegate {
-    func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
-        print("location manager authorization status changed")
-        
-        switch status {
-        case .authorizedAlways:
-            print("user allow app to get location data when app is active or in background")
-        case .authorizedWhenInUse:
-            print("user allow app to get location data only when app is active")
-        case .denied:
-            print("user tap 'disallow' on the permission dialog, cant get location data")
-        case .restricted:
-            print("parental control setting disallow location data")
-        case .notDetermined:
-            print("the location permission dialog haven't shown before, user haven't tap allow/disallow")
-        }
-    }
-}
-
